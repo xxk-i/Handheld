@@ -1,2 +1,4 @@
 gamefaqs/
 shell.nix
+providers/__pycache__/
+**/target/*

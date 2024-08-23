@@ -1,26 +1,44 @@
 import re
 import requests
 import urllib.parse
-import sys
 import json
 from fake_useragent import UserAgent
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, NavigableString
 
-gamefaqs = "https://gamefaqs.gamespot.com"
-search = "/ajax/home_game_search?term=&term="
+class Gamefaqs():
+    def __init__(self):
+        self.header = {"User-Agent": UserAgent().random}
+        self.baseurl = "https://gamefaqs.gamespot.com"
+        self.url = self.baseurl
+        self.search_url = "/ajax/home_game_search?term=&term="
 
-def main(game_title: str):
-    header = {"User-Agent": UserAgent().random}
+    def search(self, title: str):
+        url = self.baseurl + self.search_url + urllib.parse.quote(title)
+        results = json.loads(requests.get(url, headers=self.header).text)
 
-    url = gamefaqs + search + urllib.parse.quote(game_title)
+        return results
 
-    results = json.loads(requests.get(url, headers=header).text)
+    def get_guides(self, url: str) -> str:
+        page = requests.get(self.baseurl + url + "/faqs", headers=self.header)
+        soup = BeautifulSoup(page.text, 'html.parser')
 
-    page = requests.get(gamefaqs + results[0]["url"] + "/faqs", headers=header)
+        guides_dict = {"guides": []}
+        guides_lists = soup.find_all("ol", "guides")
+        for guides_list in guides_lists:
+            for ol in guides_list:
+                if type(ol) is NavigableString:
+                    continue
+                info = {}
+                a = ol.find("a")
+                info["link"] = a["href"]
+                info["title"] = a.find_all(string=True, recursive=False)
+                guides_dict["guides"].append(info)
+        
+        return json.dumps(guides_dict)
 
-    soup = BeautifulSoup(page.text, 'html.parser')
+        # print(guides)
 
-    print(soup.find_all("ol", "guides"))
+        # with open("out.html", "w+") as f:
+        #     f.write((str)())
 
-if __name__ == "__main__":
-    main(sys.argv[1])
+        # print(soup.find_all("ol", "guides"))
