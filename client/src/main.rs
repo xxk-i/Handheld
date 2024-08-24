@@ -6,10 +6,13 @@ use interprocess::local_socket::{
     tokio::{prelude::*, RecvHalf, SendHalf, Stream},
     GenericFilePath, GenericNamespaced,
 };
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use log::debug;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc::{self, Receiver, Sender};
 
 fn main() -> eframe::Result {
+    env_logger::init();
+
     let (walkthrough_request_sender, mut walkthrough_request_receiver): (
         Sender<String>,
         Receiver<String>,
@@ -28,20 +31,30 @@ fn main() -> eframe::Result {
     let (recver, mut sender) = conn.split();
     let mut recver = BufReader::new(recver);
 
-    let mut buffer: [u8; 8192] = [0; 8192];
-
     let tx = walkthrough_sender.clone();
     rt.spawn(async move {
         while let Some(message) = walkthrough_request_receiver.recv().await {
-            println!("Got a message from rx1: {}", message);
+            let mut size_buffer = String::new();
+            debug!("Sending search request: {message}");
             sender.write(message.as_bytes()).await.unwrap();
-            recver.read(&mut buffer).await.unwrap();
-            let walkthrough = String::from_utf8_lossy(&buffer);
+
+            recver.read_line(&mut size_buffer).await.unwrap();
+
+            let mut walkthrough = vec![
+                0;
+                size_buffer
+                    .strip_suffix("\n")
+                    .unwrap()
+                    .parse::<usize>()
+                    .unwrap()
+            ];
+            recver.read_exact(&mut walkthrough).await.unwrap();
+            let walkthrough = String::from_utf8_lossy(walkthrough.as_slice());
+            debug!("Received walkthrough list: {}", walkthrough);
             tx.send(walkthrough.into_owned()).await.unwrap();
         }
     });
 
-    env_logger::init(); // Log to stderr (if you run with `RUST_LOG=debug`).
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
         ..Default::default()

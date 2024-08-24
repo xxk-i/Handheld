@@ -1,13 +1,16 @@
 use interprocess::local_socket::{
     traits::ListenerExt, GenericNamespaced, ListenerOptions, Stream, ToNsName,
 };
+use log::debug;
 use serde_json::Value;
 use std::{
     io::{self, BufRead, BufReader, Write},
     process::Command,
 };
 
-fn main() -> std::io::Result<()> {
+#[tokio::main]
+async fn main() -> std::io::Result<()> {
+    env_logger::init();
     // println!("{json_output:?}");
 
     // Define a function that checks for errors in incoming connections. We'll use this to filter
@@ -39,45 +42,53 @@ fn main() -> std::io::Result<()> {
         x => x.unwrap(),
     };
 
-    let mut buffer = String::with_capacity(128);
-
     for conn in listener.incoming().filter_map(handle_error) {
-        // Wrap the connection into a buffered receiver right away
-        // so that we could receive a single line from it.
-        let mut conn = BufReader::new(conn);
-        println!("Incoming connection!");
+        tokio::spawn(async move {
+            let mut buffer = String::with_capacity(128);
+            // Wrap the connection into a buffered receiver right away
+            // so that we could receive a single line from it.
+            let mut conn = BufReader::new(conn);
+            debug!("Connection started");
 
-        // Since our client example sends first, the server should receive a line and only then
-        // send a response. Otherwise, because receiving from and sending to a connection cannot
-        // be simultaneous without threads or async, we can deadlock the two processes by having
-        // both sides wait for the send buffer to be emptied by the other.
-        conn.read_line(&mut buffer).unwrap();
+            loop {
+                conn.read_line(&mut buffer).unwrap();
+                debug!("Received search request: {buffer}");
+                let output: std::process::Output = Command::new("cmd")
+                    .args([
+                        "/C",                                  // Launch cmd with command
+                        "py",                                  // python
+                        "../providers/WalkthroughProvider.py", // cli file
+                        "search",                              // search subcommand
+                        buffer.as_str(),                       // game title
+                                                               // "final fantasy vii",                   // game title
+                    ])
+                    .output()
+                    .unwrap();
 
-        let output: std::process::Output = Command::new("cmd")
-            .args([
-                "/C",                                  // Launch cmd with command
-                "py",                                  // python
-                "../providers/WalkthroughProvider.py", // cli file
-                "search",                              // search subcommand
-                buffer.as_str(),
-                // "final fantasy vii",                   // game title
-            ])
-            .output()
-            .unwrap();
+                let json_output: Value = serde_json::from_slice(&output.stdout).unwrap();
+                debug!(
+                    "Got search output: {}",
+                    String::from_utf8_lossy(&output.stdout)
+                );
 
-        let json_output: Value = serde_json::from_slice(&output.stdout).unwrap();
+                debug!("Sending size: {}", &output.stdout.len().to_string());
 
-        // Now that the receive has come through and the client is waiting on the server's send, do
-        // it. (`.get_mut()` is to get the sender, `BufReader` doesn't implement a pass-through
-        // `Write`.)
-        conn.get_mut().write_all(&output.stdout)?;
+                let mut size = output.stdout.len().to_string().clone();
+                size.push_str("\n");
 
-        // Print out the result, getting the newline for free!
-        print!("Client answered: {buffer}");
+                conn.get_mut().write(size.as_bytes()).unwrap();
 
-        // Clear the buffer so that the next iteration will display new data instead of messages
-        // stacking on top of one another.
-        buffer.clear();
+                // Now that the receive has come through and the client is waiting on the server's send, do
+                // it. (`.get_mut()` is to get the sender, `BufReader` doesn't implement a pass-through
+                // `Write`.)
+                conn.get_mut().write_all(&output.stdout).unwrap();
+                debug!("Finished writing output");
+
+                // Clear the buffer so that the next iteration will display new data instead of messages
+                // stacking on top of one another.
+                buffer.clear();
+            }
+        });
     }
 
     Ok(())

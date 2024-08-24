@@ -758,6 +758,7 @@ dependencies = [
  "eframe",
  "env_logger",
  "interprocess",
+ "log",
  "tokio",
 ]
 
