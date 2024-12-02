@@ -32,6 +32,8 @@ fn main() -> eframe::Result {
     let mut recver = BufReader::new(recver);
 
     let tx = walkthrough_sender.clone();
+
+    // WALKTHROUGH GETTER THREAD
     rt.spawn(async move {
         while let Some(message) = walkthrough_request_receiver.recv().await {
             let mut size_buffer = String::new();
@@ -54,9 +56,10 @@ fn main() -> eframe::Result {
             tx.send(walkthrough.into_owned()).await.unwrap();
         }
     });
+    // WALKTHROUGH GETTER THREAD
 
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([320.0, 240.0]),
+        viewport: egui::ViewportBuilder::default().with_inner_size([640.0, 480.0]),
         ..Default::default()
     };
     eframe::run_native(
@@ -91,6 +94,7 @@ impl MyApp {
 
     fn try_receive_walkthrough(&mut self) {
         if let Ok(message) = self.rx.try_recv() {
+            debug!("Writing to screen");
             self.response = message;
         }
     }
@@ -105,6 +109,7 @@ impl eframe::App for MyApp {
                 self.request_walkthrough();
             }
             ui.label(format!("Reponse: {}", self.response));
+            // debug!("hello");
             self.try_receive_walkthrough();
         });
     }
